@@ -1,20 +1,23 @@
 import network, os, machine
 from Timeout import Timeout
+from SimplePing import SimplePing
 
 class SimpleWLAN:
     """Connect to WLAN: x = SimpleWLAN("ssid", "key", ap = False)"""
 
-    def __init__(self, ssid = None, key = None, ap = False):
+    def __init__(self, ssid = None, key = None, ap = False, keepalive_ping = True):
         self.ap, self.ssid, self.key = ap, ssid, key
         if ap and not ssid:
             self.ssid = (os.uname()[0] + "-" + "".join("%02x" % i for i in machine.unique_id()))[:32]
         self.wlan = None
+        self._keepalive_ping = keepalive_ping
+        self._ping = None
         self.connect()
 
     @classmethod
     def from_config(self, filename = "wlan.conf", fallback = True):
         try:
-            conf = {"ssid": None, "key": None, "ap": False}
+            conf = {"ssid": None, "key": None, "ap": False, "keepalive_ping": True}
             import json
             with open(filename, "r") as f:
                 for k, v in json.load(f).items():
@@ -29,6 +32,9 @@ class SimpleWLAN:
         return self(**conf)
 
     def disconnect(self):
+        if self._ping:
+            self._ping.close()
+            self._ping = None
         if self.wlan:
             self.wlan.disconnect()
             self.wlan.active(False)
@@ -60,9 +66,19 @@ class SimpleWLAN:
                 x = self.wlan.ifconfig()
                 self.ip, self.gateway = x[0], x[2]
                 print(f"WLAN ready, IP {self.ip}, gateway {self.gateway}")
+            self._keepalive_ping and self._ping_or_reconnect()
             return True
         if not 0 <= s <= 3 and s != self._failed:
             self._failed = s
             print(f"WLAN failed ({s})")
         self._connect_timeout.expired() and self.connect()
         return False
+
+    def _ping_or_reconnect(self):
+        p = self._ping or SimplePing(self.gateway, count = 7, interval = 10_000, timeout = 10_000)
+        if p.done():
+            if not p.ms():
+                print(f"PING failed, reconnecting.")
+                self.connect()
+            p = None
+        self._ping = p
