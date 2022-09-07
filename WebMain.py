@@ -3,6 +3,9 @@
 import socket, time, machine, sys, os, gc
 from Timeout import Timeout
 
+def utc_time_str():
+    return "{0:04}-{1:02}-{2:02}T{3:02}:{4:02}:{5:02}Z".format(*time.gmtime())
+
 class WebRequest:
     def __init__(self, socket):
         self.socket = socket
@@ -46,7 +49,7 @@ class WebMain:
         except BaseException as e:
             sys.print_exception(e)
             with open("WebMain.log", "a") as file:
-                file.write(b"\n---------\n")
+                file.write(f"\n---------\n{utc_time_str()}\n")
                 sys.print_exception(e, file)
         finally:
             if main and main.socket:
@@ -116,7 +119,7 @@ class WebMain:
             error = (401, b"Failed to parse request")
             request = WebRequest(client)
             request.parse()
-            print(f"{request.method} {request.uri}")
+            print(f"{utc_time_str()} {request.method} {request.uri}")
             error = (500, b"Failed to process request")
             self._dispatch_request(request)
             if not request.output_started:
@@ -170,6 +173,7 @@ class WebMain:
             <p>version: {uname.version}</p>
             <p>reset_cause: {machine.reset_cause()}</p>
             <p>freq: {machine.freq()}</p>
+            <p>time: {utc_time_str()} (UTC)</p>
             <p>mem: {gc.mem_alloc()} used, {gc.mem_free()} free</p>
             <h2>Modules</h2>
         """)
