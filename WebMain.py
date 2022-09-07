@@ -54,12 +54,13 @@ class WebMain:
         if retry_acceptable and retry_acceptable.expired():
             machine.reset()
 
-    def __init__(self, network, display_errors = True, front_page = True):
+    def __init__(self, network, display_errors = True, front_page = True, background_interval = 2_000):
         self.network = network
         self.socket = None
         self.display_errors = display_errors
         self.front_page = front_page
         self.modules = []
+        self.background_interval = background_interval
 
     class WebModule:
         def __init__(self, name, uri, handler):
@@ -78,9 +79,14 @@ class WebMain:
         self.modules.append(self.WebModule(name, uri, handler))
 
     def _run(self):
+        run_background_work = Timeout(-1)
         while True:
             if self.network.connected() and not self.socket:
                 self._listen()
+            if not self._accept_request() or run_background_work.expired():
+                for module in self.modules:
+                    module.handler(None)
+                run_background_work = Timeout(self.background_interval)
             if not self._accept_request():
                 time.sleep_ms(10)
 
@@ -138,8 +144,14 @@ class WebMain:
                 return True
 
     def __call__(self, request):
-        if request.path_info != "":
+        if not request:
+            # Time to do any background work.
             return
+
+        if request.path_info != "":
+            # Page is not found.
+            return
+
         gc.collect()
         uname = os.uname()
         request.reply(status = 200, mime = b"text/html; charset=UTF-8")

@@ -2,6 +2,7 @@
 
  - Write module as a function or an object with __call__ method.
    It will be passed a WebRequest object when a request arrives.
+   It will be passed None periodically to allow background tasks.
    See WebMain.__call__ and other __call__ methods for examples.
 
  - Write a main class similar to ExampleMain, derived from WebMain.
@@ -13,6 +14,10 @@
 
 class ExampleModule:
     def __call__(self, request):
+        # When request is None, run any background tasks.
+        if not request:
+            return
+
         # Error pages (content = "when empty page is not enough").
         if request.method != "GET":
             return request.reply(status = 404)
