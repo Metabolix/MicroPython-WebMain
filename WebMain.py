@@ -54,10 +54,28 @@ class WebMain:
         if retry_acceptable and retry_acceptable.expired():
             machine.reset()
 
-    def __init__(self, network, display_errors = True):
+    def __init__(self, network, display_errors = True, front_page = True):
         self.network = network
         self.socket = None
         self.display_errors = display_errors
+        self.front_page = front_page
+        self.modules = []
+
+    class WebModule:
+        def __init__(self, name, uri, handler):
+            self.name = name
+            self.uri = uri
+            self.handler = handler
+
+    def add_module(self, handler, name = True, uri = True):
+        if name is True:
+            try:
+                name = handler.__name__
+            except:
+                name = handler.__class__.__name__
+        if uri is True:
+            uri = "/" + name
+        self.modules.append(self.WebModule(name, uri, handler))
 
     def _run(self):
         while True:
@@ -104,7 +122,23 @@ class WebMain:
         return True
 
     def _dispatch_request(self, request):
-        if request.uri != "/":
+        for module in self.modules:
+            if self._dispatch_request_if_matches(request, module.uri, module.handler):
+                return
+        if self.front_page:
+            self._dispatch_request_if_matches(request, "/", self)
+
+    def _dispatch_request_if_matches(self, request, script_name, handler):
+        if script_name and request.uri.startswith(script_name):
+            l = len(script_name)
+            if (len(request.uri) <= l or request.uri[l] in "/?" or request.uri[l-1] in "/?"):
+                request.script_name = script_name
+                request.path_info = request.uri[l:]
+                handler(request)
+                return True
+
+    def __call__(self, request):
+        if request.path_info != "":
             return
         gc.collect()
         uname = os.uname()
@@ -117,4 +151,12 @@ class WebMain:
             <p>reset_cause: {machine.reset_cause()}</p>
             <p>freq: {machine.freq()}</p>
             <p>mem: {gc.mem_alloc()} used, {gc.mem_free()} free</p>
+            <h2>Modules</h2>
         """)
+        for module in self.modules:
+            if module.uri:
+                request.reply(f"<li><a href='{module.uri}'>{module.name}</a>")
+            else:
+                request.reply(f"<li>{module.name}")
+        if not self.modules:
+            request.reply(b"<p>Oh no, you haven't configured any modules!</p>")
