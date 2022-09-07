@@ -54,13 +54,21 @@ class WebMain:
         if retry_acceptable and retry_acceptable.expired():
             machine.reset()
 
-    def __init__(self, network, display_errors = True, front_page = True, background_interval = 2_000):
+    def __init__(
+        self, network,
+        display_errors = True, front_page = True,
+        background_interval = 2_000,
+        ntp = True,
+    ):
         self.network = network
         self.socket = None
         self.display_errors = display_errors
         self.front_page = front_page
         self.modules = []
         self.background_interval = background_interval
+        if ntp:
+            from SimpleNTPClient import WebSyncRTC
+            self.add_module(WebSyncRTC())
 
     class WebModule:
         def __init__(self, name, uri, handler):
