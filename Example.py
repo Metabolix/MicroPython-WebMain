@@ -9,6 +9,7 @@
    All custom configuration should be done inside __init__.
    Remember to call super().__init__ with proper options.
    Add modules with add_module(handler, name_for_listing, uri).
+   Add static pages with add_static(path, uri).
    Start the server with MainClass.main().
 """
 
@@ -25,6 +26,14 @@ class ExampleModule:
         # Custom content types.
         if request.path_info == "?json":
             return request.reply(mime = b"application/json", content = "[1,2,3]")
+
+        # Static content, with automatic MIME types for some common extensions.
+        if request.path_info == "/image.jpg":
+            return request.reply_static("path-to-image.jpg")
+
+        # Static content, with custom MIME type.
+        if request.path_info == "/audio.webm":
+            return request.reply_static("audio.webm", mime = b"audio/webm")
 
         # Default: plain text, unless you set mime = b"...".
         request.reply(
@@ -44,6 +53,10 @@ class ExampleMain(WebMain):
         # Needs wlan.conf: {"ssid": "MyNet", "key": "my-secrets", "ap": false}
         network = SimpleWLAN.from_config()
         super().__init__(network)
+
+        # Add any common static content (files or dirs).
+        self.add_static("/favicon.ico")
+        self.add_static("/static-pages")
 
         # Add the default front page to another uri, if you wish.
         self.add_module(self, uri = "/WebMain")

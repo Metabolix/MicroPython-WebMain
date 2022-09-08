@@ -33,6 +33,40 @@ class WebRequest:
         if content:
             self.socket.send(content)
 
+    def reply_static(self, path, mime = None):
+        try:
+            with open(path, "rb") as f:
+                try:
+                    ext = path[path.rindex(".", 1) + 1:]
+                    self.reply(mime = mime or self._ext_to_mime[ext])
+                except:
+                    data = f.read(1024)
+                    try:
+                        data.decode("UTF-8")
+                        self.reply(mime = b"text/plain; charset=UTF-8")
+                    except:
+                        self.reply(mime = b"application/octet-stream")
+                    self.reply(data)
+                    del data
+                while True:
+                    data = f.read(1024)
+                    if not data:
+                        return
+                    self.reply(data)
+        except:
+            pass
+
+    _ext_to_mime = {
+        "html": b"text/html; charset=UTF-8",
+        "css": b"text/css; charset=UTF-8",
+        "js": b"text/javascript; charset=UTF-8",
+        "png": b"image/png",
+        "jpg": b"image/jpeg",
+        "ico": b"image/x-icon",
+        "svg": b"image/svg+xml",
+        "webp": b"image/webp",
+    }
+
 class WebMain:
     @classmethod
     def main(self):
@@ -88,6 +122,12 @@ class WebMain:
         if uri is True:
             uri = "/" + name
         self.modules.append(self.WebModule(name, uri, handler))
+
+    def add_static(self, path, uri = True):
+        if uri is True:
+            uri = path
+        handler = lambda request: self._handle_static(request, path)
+        self.add_module(handler, "static: " + uri, uri)
 
     def _run(self):
         run_background_work = Timeout(-1)
@@ -153,6 +193,13 @@ class WebMain:
                 request.path_info = request.uri[l:]
                 handler(request)
                 return True
+
+    def _handle_static(self, request, path):
+        if not request:
+            return
+        if request.path_info and "../" in request.path_info:
+            return
+        request.reply_static(path + request.path_info)
 
     def __call__(self, request):
         if not request:
