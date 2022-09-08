@@ -1,6 +1,6 @@
 """Web-based main loop for MicroPython. See Example.py for instructions."""
 
-import socket, time, machine, sys, os, gc
+import socket, select, time, machine, sys, os, gc
 from Timeout import Timeout
 
 def utc_time_str():
@@ -12,15 +12,27 @@ class WebRequest:
         self.output_started = False
         self._data_pos = 0
 
+    def _poll(self, event, *, ready, action):
+        socket = self.socket
+        socket.setblocking(False)
+        poller = select.poll()
+        poller.register(socket, event)
+        while not ready():
+            for x in poller.poll(2000):
+                if x[1] & event:
+                    action(socket)
+                    break
+            else:
+                socket.close()
+                return False
+
+    def _recv(self, data, *, ready):
+        self._poll(select.POLLIN, ready = ready, action = lambda socket: data.extend(socket.recv(1024)))
+
     def parse(self):
-        self.socket.setblocking(True)
-        head = bytearray()
-        while True:
-            s = self.socket.readline()
-            if not s or not s.strip():
-                break
-            head.extend(s)
-        head = head.strip()
+        data = bytearray()
+        self._recv(data, ready = lambda: b"\r\n\r\n" in data)
+        head, self._data = data.split(b"\r\n\r\n", 1)
         raw_headers = head.decode().split("\r\n")
         self.method, self.uri, self.http_version = raw_headers[0].split(" ")
         self.headers = []
@@ -34,21 +46,31 @@ class WebRequest:
 
     def request_body_callback(self, callback):
         while self._data_pos < self.size:
-            data = self.socket.read(min(self.size - self._data_pos, 1024))
-            if not data:
-                raise RuntimeError("Client disconnected or timed out.")
-            self._data_pos += len(data)
-            callback(data)
+            if not self._data:
+                self._recv(self._data, ready = lambda: len(self._data) > 0)
+                if not self._data:
+                    raise RuntimeError("Client disconnected or timed out.")
+            self._data_pos += len(self._data)
+            callback(self._data)
+            self._data = bytearray()
+
+    def _send(self, data):
+        mem = memoryview(data)
+        self.output_started = True
+        data_i = 0
+        def f(socket):
+            nonlocal data_i
+            data_i += socket.send(mem[data_i:])
+        self._poll(select.POLLOUT, ready = lambda: data_i >= len(mem), action = f)
 
     def reply(self, content = b"", status = 200, mime = b"text/plain; charset=UTF-8"):
         if not self.output_started:
             status = str(status).encode()
             if type(mime) == str:
                 mime = mime.encode()
-            self.socket.send(b"HTTP/1.0 " + status + b" -\r\nContent-Type: " + mime + b"\r\n\r\n")
-            self.output_started = True
+            self._send(b"HTTP/1.0 " + status + b" -\r\nContent-Type: " + mime + b"\r\n\r\n")
         if content:
-            self.socket.send(content)
+            self._send(content)
 
     def reply_static(self, path, mime = None):
         try:
