@@ -10,6 +10,7 @@ class WebRequest:
     def __init__(self, socket):
         self.socket = socket
         self.output_started = False
+        self._data_pos = 0
 
     def parse(self):
         self.socket.setblocking(True)
@@ -22,6 +23,22 @@ class WebRequest:
         head = head.strip()
         raw_headers = head.decode().split("\r\n")
         self.method, self.uri, self.http_version = raw_headers[0].split(" ")
+        self.headers = []
+        self.size = 0
+        for row in raw_headers[1:]:
+            name, value = row.split(":", 1)
+            name, value = name.lower(), value.strip()
+            self.headers.append((name, value))
+            if name == "content-length":
+                self.size = int(value)
+
+    def request_body_callback(self, callback):
+        while self._data_pos < self.size:
+            data = self.socket.read(min(self.size - self._data_pos, 1024))
+            if not data:
+                raise RuntimeError("Client disconnected or timed out.")
+            self._data_pos += len(data)
+            callback(data)
 
     def reply(self, content = b"", status = 200, mime = b"text/plain; charset=UTF-8"):
         if not self.output_started:
