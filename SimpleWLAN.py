@@ -11,6 +11,23 @@ class SimpleWLAN:
         self.wlan = None
         self.connect()
 
+    @classmethod
+    def from_config(self, filename = "wlan.conf", fallback = True):
+        try:
+            conf = {"ssid": None, "key": None, "ap": False}
+            import json
+            with open(filename, "r") as f:
+                for k, v in json.load(f).items():
+                    if k in conf:
+                        conf[k] = v
+        except:
+            print(f"Failed to load config from {filename}. Example contents:")
+            print('{"ssid": "MyNet", "key": "my-secrets", "ap": false}')
+            if not fallback:
+                return
+            conf["ap"] = True
+        return self(**conf)
+
     def disconnect(self):
         if self.wlan:
             self.wlan.disconnect()
