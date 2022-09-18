@@ -47,6 +47,7 @@ class ExampleMain(WebMain):
     def __init__(self):
         # Import modules.
         from SimpleWLAN import SimpleWLAN
+        from WebFileManager import WebFileManager
         # Import your own modules: from Example import ExampleModule
 
         # Start WLAN and initialize WebMain.
@@ -62,7 +63,7 @@ class ExampleMain(WebMain):
         self.add_module(self, uri = "/WebMain")
 
         # Add a module with default uri (which is "/" + __name__).
-        self.add_module(ExampleModule())
+        self.add_module(WebFileManager())
 
         # Add a module with custom uri.
         # If you use "/", it must be last.

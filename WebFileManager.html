@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>WebFileManager</title>
+<style>
+#ui {
+    display: flex;
+}
+#filename {
+    width: 25em;
+}
+ul {
+    list-style: none;
+    padding: 0;
+}
+#filetree {
+    min-width: 16em;
+}
+#results {
+    width: 16em;
+}
+#filetree li {
+    margin-bottom: 0.5em;
+}
+#filetree li ul {
+    margin-top: 0.5em;
+    margin-left: 1em;
+}
+#results li {
+    margin-bottom: 1em;
+    max-height: 5em;
+    opacity: 1;
+    white-space: pre-line;
+    overflow: hidden;
+    transition: all .5s ease-out;
+}
+#results li.result-hidden {
+    margin-bottom: 0;
+    max-height: 0;
+    opacity: 0;
+}
+</style>
+</head>
+<body>
+<h1>WebFileManager</h1>
+<p><button onclick="do_reset();">reset machine</button></p>
+<div id="ui">
+    <fieldset>
+        <legend>Manage files</legend>
+        <p><button id="refresh" onclick="do_filetree();">refresh list</button></p>
+        <p><button id="mkdir" onclick="do_mkdir();">mkdir</button> <input id="mkdir-name"></p>
+        <p><button id="rmdir" onclick="do_rmdir();">rmdir</button> <input id="rmdir-name"></p>
+        <ul id="filetree"></ul>
+    </fieldset>
+    <fieldset>
+        <legend>Edit file: <span id="filename-open">-</span></legend>
+        <p>
+        Filename: <input id="filename">
+        <button id="read" onclick="do_read();">(Re)Open</button>
+        <button id="write" onclick="do_write();">Save</button>
+        <button id="unlink" onclick="do_unlink();">Delete</button>
+        <button id="allow-edit" onclick="do_allow_edit();">Edit as text</button>
+        </p>
+        <p><textarea id="data" rows="20" cols="100"></textarea></p>
+        <p><a id="download-link" href="#">Save to Computer</a></p>
+        <p>Open from Computer: <input type="file" id="upload"></p>
+    </fieldset>
+    <fieldset>
+        <legend>Results</legend>
+        <ul id="results"></ul>
+    </fieldset>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const $_ = tag => document.createElement(tag);
+const show_result = msg => {
+    let e = $("results").insertBefore($_("li"), $("results").firstChild);
+    e.textContent = new Date().toLocaleString() + "\n" + msg;
+    e.classList.add("result-hidden");
+    setTimeout(() => e.classList.remove("result-hidden"), 100);
+    setTimeout(() => e.classList.add("result-hidden"), 60_000);
+    setTimeout(() => e.remove(), 62_000);
+};
+const fetch_ok = async (uri, params) => {
+    let result = await fetch(uri, params);
+    if (!result.ok) {
+        show_result("HTTP error " + result.status);
+        throw result.status;
+    }
+    return result;
+};
+
+const do_reset = async () => {
+    fetch("?reset", {method: "POST"})
+    .then(() => show_result("Reset initiated"))
+    .catch(() => show_result("Failed to reset"))
+};
+
+const filetree = async function () {
+    const ls = async name => (await fetch_ok("?ls=" + name)).json();
+    let t = (await ls("/")).map(x => "/" + x);
+    for (let i = 0; i < t.length; ++i) {
+        if (t[i].substr(-1) == "/") {
+            let tt = await ls(t[i]);
+            if (tt) {
+                t.splice(i + 1, 0, ...tt.map(x => t[i] + x));
+            }
+        }
+    }
+    return t;
+};
+
+const do_filetree = async () => {
+    let files = await filetree();
+    let ul = {"/": $("filetree")};
+    ul["/"].innerHTML = "";
+    files.map(f => {
+        let dir = f.replace(/(.*\/).+/, "$1");
+        let li = ul[dir].appendChild($_("li"));
+        let a = li.appendChild($_("a"));
+        a.textContent = f.substr(dir.length);
+        if (f.substr(-1) == "/") {
+            a.href = "?ls=" + f;
+            a.addEventListener("click", e => {
+                e.preventDefault();
+                $("mkdir-name").value = f;
+                $("rmdir-name").value = f;
+            });
+            ul[f] = li.appendChild($_("ul"));
+        } else {
+            a.href = "?read=" + f;
+            a.addEventListener("click", e => {
+                e.preventDefault();
+                $("filename").value = f;
+                do_read();
+            });
+        }
+    });
+};
+const do_mkdir = async () => {
+    let dir = $("mkdir-name").value.replace(/\/+$/, "");
+    fetch_ok("?mkdir=" + dir, {method: "POST"})
+    .then(() => show_result("Created dir " + dir))
+    .catch(e => show_result("Failed to create dir " + dir))
+    .finally(do_filetree);
+};
+const do_rmdir = async () => {
+    let dir = $("rmdir-name").value.replace(/\/+$/, "");
+    fetch_ok("?rmdir=" + dir, {method: "POST"})
+    .then(() => show_result("Removed dir " + dir))
+    .catch(e => show_result("Failed to remove dir " + dir))
+    .finally(do_filetree);
+};
+const do_read = async () => {
+    let name = $("filename").value;
+    fetch_ok("?read=" + name)
+    .then(async e => done_read(name, await e.blob()))
+    .catch(e => show_result("Failed to open " + name))
+};
+let binary_data;
+const done_read = async (name, blob) => {
+    let buffer = await blob.arrayBuffer();
+    binary_data = new Uint8Array(buffer);
+    $("download-link").href = "#" + name;
+    try {
+        $("data").disabled = false;
+        $("data").value = await blob.text();
+        new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+    } catch (e) {
+        $("data").disabled = true;
+    }
+    $("allow-edit").disabled = !$("data").disabled;
+    $("filename").value = $("filename-open").textContent = name;
+    show_result("Opened " + name);
+};
+const do_download = () => {
+    $("download-link").click();
+};
+const do_allow_edit = () => {
+    $("data").disabled = false;
+    $("allow-edit").disabled = !$("data").disabled;
+};
+const do_write = async () => {
+    let name = $("filename").value;
+    const params = {
+        method: "POST",
+        headers: {"Content-Type": "application/octet-stream"},
+        body: $("data").disabled ? binary_data : $("data").value
+    };
+    fetch("?write=" + name, params)
+    .then(() => {
+        show_result("Wrote file " + name);
+        $("filename-open").textContent = name;
+    })
+    .catch(e => show_result("Failed to write file " + name))
+    .finally(do_filetree);
+};
+const do_unlink = async () => {
+    let name = $("filename").value;
+    fetch_ok("?unlink=" + name, {method: "POST"})
+    .then(() => show_result("Removed file " + name))
+    .catch(e => show_result("Failed to remove file " + name))
+    .finally(do_filetree);
+};
+window.addEventListener("unload", () => {});
+window.addEventListener("load", () => {
+    $("filename").value = "";
+    $("data").value = "";
+    $("upload").addEventListener("change", function() {
+        for (const f of this.files) {
+            done_read(f.name, f);
+        }
+    });
+    $("download-link").addEventListener("click", function() {
+        $("download-link").download = $("filename").value.replace(/.*\/(?=.)/, "") || "file.dat";
+        if ($("data").disabled) {
+            this.href = "data:application/octet-stream;base64," + btoa(String.fromCharCode(...binary_data));
+        } else {
+            this.href = "data:text/plain;charset=UTF-8," + encodeURIComponent($("data").value);
+        }
+    });
+    do_filetree();
+});
+</script>
+</body>
+</html>
