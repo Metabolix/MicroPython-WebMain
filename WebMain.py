@@ -120,15 +120,19 @@ class WebMain:
             sys.print_exception(e)
             return
         except BaseException as e:
-            sys.print_exception(e)
-            with open("WebMain.log", "a") as file:
-                file.write(f"\n---------\n{utc_time_str()}\n")
-                sys.print_exception(e, file)
+            self._log(e)
         finally:
             if main and main.socket:
                 main.socket.close()
         if retry_acceptable and retry_acceptable.expired():
             machine.reset()
+
+    @classmethod
+    def _log(self, e):
+        sys.print_exception(e)
+        with open("WebMain.log", "a") as file:
+            file.write(f"\n---------\n{utc_time_str()}\n")
+            sys.print_exception(e, file)
 
     def __init__(
         self, network,
@@ -151,6 +155,7 @@ class WebMain:
             self.name = name
             self.uri = uri
             self.handler = handler
+            self.background = True
 
     def add_module(self, handler, name = True, uri = True):
         if name is True:
@@ -175,7 +180,13 @@ class WebMain:
                 self._listen()
             if not self._accept_request() or run_background_work.expired():
                 for module in self.modules:
-                    module.handler(None)
+                    try:
+                        module.background and module.handler(None)
+                    except KeyboardInterrupt as e:
+                        raise e
+                    except BaseException as e:
+                        self._log(e)
+                        module.background = False
                 run_background_work = Timeout(self.background_interval)
             if not self._accept_request():
                 time.sleep_ms(10)
