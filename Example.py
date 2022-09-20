@@ -48,7 +48,6 @@ class ExampleMain(WebMain):
         # Import modules.
         from SimpleWLAN import SimpleWLAN
         from WebFileManager import WebFileManager
-        # Import your own modules: from Example import ExampleModule
 
         # Start WLAN and initialize WebMain.
         # Needs wlan.conf: {"ssid": "MyNet", "key": "my-secrets", "ap": false}
@@ -65,9 +64,18 @@ class ExampleMain(WebMain):
         # Add a module with default uri (which is "/" + __name__).
         self.add_module(WebFileManager())
 
-        # Add a module with custom uri.
-        # If you use "/", it must be last.
-        self.add_module(ExampleModule(), uri = "/")
+        # Try to add own modules; log error on failure.
+        # The server will run even if the module is broken.
+        try:
+            # Import: from Example import ExampleModule
+            # Add a module with custom uri.
+            # Notice: uris are matched in insertion order,
+            # so if you use "/", make sure it's the last one.
+            self.add_module(ExampleModule(), uri = "/")
+        except BaseException as e:
+            # Log the error and show log file as "front page".
+            self._log(e)
+            self.add_static("/WebMain.log", uri = "/")
 
 # Start the web server.
 ExampleMain.main()
