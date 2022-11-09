@@ -35,25 +35,42 @@ class SimplePing:
         self.ping_seq = 0
         self.pong_ms = None
         self.pong_seq_max = 0
+        self._recv_timeout = Timeout(0)
+        self._done = False
+        self.socket = None
+        self.broken = False
+        self._ping()
+
+    def _connect(self):
         try:
-            address = socket.getaddrinfo(host, 1)[0][-1]
+            address = socket.getaddrinfo(self.host, 1)[0][-1]
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, 1)
             self.socket.setblocking(False) # select.poll returns POLLHUP with SOCK_RAW.
             self.socket.connect(address)
-            self._ping()
-        except:
+            return True
+        except OSError as e:
+            self.socket and self.socket.close()
             self.socket = None
+            if e.errno == 12: # ENOMEM
+                self.broken = True
 
     def _ping(self):
         self.ping_seq += 1
+        self._send_timeout = Timeout(self.interval)
+        if not self.socket and not self._connect():
+            return
         packet = bytearray(self.ping_size)
         struct.pack_into("!BBHHHQ", packet, 0, 8, 0, 0, self.ping_id, self.ping_seq, time.ticks_ms())
         struct.pack_into("!H", packet, 2, checksum(packet))
-        self.socket.send(packet)
-        self._send_timeout = Timeout(self.interval)
+        try:
+            self.socket.send(packet)
+        except OSError as e:
+            return # Mostly EHOSTUNREACH (113)
         self._recv_timeout = Timeout(self.timeout)
 
     def _pong(self):
+        if not self.socket:
+            return False
         try:
             ip_packet = self.socket.recv(20 + self.ping_size)
             p_type, _, _, p_id, p_seq, p_time = struct.unpack_from("!BBHHHQ", ip_packet, 20)
@@ -68,7 +85,7 @@ class SimplePing:
         return True
 
     def update(self):
-        if self.socket:
+        if not self._done:
             if self.ping_seq < self.count and self._send_timeout.expired():
                 self._ping()
             while self._pong():
@@ -80,10 +97,11 @@ class SimplePing:
         if self.socket:
             self.socket.close()
             self.socket = None
+        self._done = True
 
     def done(self):
         self.update()
-        return not self.socket
+        return self._done
 
     def ms(self):
         self.update()
