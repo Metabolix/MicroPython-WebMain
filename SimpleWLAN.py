@@ -12,6 +12,7 @@ class SimpleWLAN:
         self.wlan = None
         self._keepalive_ping = keepalive_ping
         self._ping = None
+        self._ping_broken = 0
         self.connect()
 
     @classmethod
@@ -66,7 +67,8 @@ class SimpleWLAN:
                 x = self.wlan.ifconfig()
                 self.ip, self.gateway = x[0], x[2]
                 print(f"WLAN ready, IP {self.ip}, gateway {self.gateway}")
-            self._keepalive_ping and self._ping_or_reconnect()
+            if self._keepalive_ping:
+                return self._ping_or_reconnect()
             return True
         if not 0 <= s <= 3 and s != self._failed:
             self._failed = s
@@ -75,10 +77,19 @@ class SimpleWLAN:
         return False
 
     def _ping_or_reconnect(self):
-        p = self._ping or SimplePing(self.gateway, count = 7, interval = 10_000, timeout = 10_000)
-        if p.done():
-            if not p.ms():
-                print(f"PING failed, reconnecting.")
-                self.connect()
-            p = None
-        self._ping = p
+        if self._ping and self._ping.done() and self._ping.ms():
+            self._ping = None
+            self._ping_broken = 0
+        if not self._ping:
+            self._ping = SimplePing(self.gateway, count = 7, interval = 10_000, timeout = 10_000)
+            return True
+        if not self._ping.done():
+            return True
+        if self._ping.broken:
+            self._ping_broken += 1
+        print(f"PING failed, reconnecting.")
+        self.connect()
+        return False
+
+    def is_broken(self, limit = 5):
+        return self._ping_broken >= limit
