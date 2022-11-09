@@ -129,10 +129,16 @@ class WebMain:
 
     @classmethod
     def _log(self, e):
-        sys.print_exception(e)
-        with open("WebMain.log", "a") as file:
-            file.write(f"\n---------\n{utc_time_str()}\n")
-            sys.print_exception(e, file)
+        if isinstance(e, BaseException):
+            sys.print_exception(e)
+            with open("WebMain.log", "a") as file:
+                file.write(f"\n---------\n{utc_time_str()}\n")
+                sys.print_exception(e, file)
+        else:
+            print(e)
+            with open("WebMain.log", "a") as file:
+                file.write(f"\n---------\n{utc_time_str()}\n")
+                file.write(e)
 
     def __init__(
         self, network,
