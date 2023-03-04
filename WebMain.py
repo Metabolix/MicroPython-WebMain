@@ -10,7 +10,8 @@ class WebRequest:
     def __init__(self, socket):
         self.socket = socket
         self.output_started = False
-        self._data_pos = 0
+        self._data = bytearray()
+        self._body_pos = 0
 
     def _poll(self, event, *, ready, action):
         socket = self.socket
@@ -26,13 +27,19 @@ class WebRequest:
                 socket.close()
                 return False
 
-    def _recv(self, data, *, ready):
-        self._poll(select.POLLIN, ready = ready, action = lambda socket: data.extend(socket.recv(1024)))
+    def _recv_until(self, max_size, boundary):
+        data = self._data
+        def action(socket):
+            # Receive in chunks, target 256-byte boundaries (FLASH_PAGE_SIZE).
+            size = ((max_size - len(data) + 0xff) & 0xff) + 1
+            data.extend(socket.recv(size))
+        def ready():
+            return len(data) >= max_size or (boundary and boundary in data)
+        self._poll(select.POLLIN, ready = ready, action = action)
 
     def parse(self):
-        data = bytearray()
-        self._recv(data, ready = lambda: b"\r\n\r\n" in data)
-        head, self._data = data.split(b"\r\n\r\n", 1)
+        self._recv_until(65536, b"\r\n\r\n")
+        head, self._data = self._data.split(b"\r\n\r\n", 1)
         raw_headers = head.decode().split("\r\n")
         self.method, self.uri, self.http_version = raw_headers[0].split(" ")
         self.headers = []
@@ -44,15 +51,20 @@ class WebRequest:
             if name == "content-length":
                 self.size = int(value)
 
-    def request_body_callback(self, callback):
-        while self._data_pos < self.size:
-            if not self._data:
-                self._recv(self._data, ready = lambda: len(self._data) > 0)
-                if not self._data:
-                    raise RuntimeError("Client disconnected or timed out.")
-            self._data_pos += len(self._data)
-            callback(self._data)
-            self._data = bytearray()
+    def read_body(self, chunk_size = 1024):
+        remaining = self.size - self._body_pos
+        if not remaining:
+            return bytearray()
+        self._recv_until(min(chunk_size, remaining), None)
+        if not self._data:
+            raise RuntimeError("Client disconnected or timed out.")
+        self._data, ret = bytearray(), self._data
+        self._body_pos += len(ret)
+        return ret
+
+    def request_body_callback(self, callback, chunk_size = 1024):
+        while self._body_pos < self.size:
+            callback(self.read_body(chunk_size))
 
     def _send(self, data):
         mem = memoryview(data)
